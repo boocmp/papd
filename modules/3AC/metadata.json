@@ -1,0 +1,6 @@
+{
+  "name": "3AC",
+  "type": "FreeFem++",
+  "entrypoint": "3AC.edp",
+  "output": "Result AC"
+}

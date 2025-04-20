@@ -1,0 +1,248 @@
+/*
+sigma = const
+electrolyte no ground soil
+mkm, not geometry
+water not oil
+iron not steel, alloy
+not flow
+static not delta geometry
+not film
+phil = const or linear, not exp debay layer 
+not temperature
+*/
+
+load "pipe" 
+include "gnuplotInterface.edp"
+include "papd_config.edp"
+
+string sgnuplot = "\"C:\\Program Files\\gnuplot\\bin\\gnuplot.exe\" -persist";
+pstream pipeStream(sgnuplot, "w");
+
+macro grad(u) [dx(u), dy(u)] // EOM
+macro mod(u, v) (u^2 + v^2)^0.5 // EOM
+
+int Wait = 1;
+real data = 1;
+
+// real TC = 20;
+real Fconst = 96485;                    /*[kl/mol] */
+
+real Cdl = 6.38;                          /*[F/m^2] Double layer capacitance */
+// real Cdl = 2.61;                        /*[F/m^2] Double layer capacitance */
+// real Rs = 8.7e-4;                       /*[ohm m^2] Solution resistance */
+real Rs = 6.72e-4;                       /*[ohm m^2] Solution resistance */
+
+real EDC = -0.67;                       /*[V] Applied DC potential */
+real ERMS = 0.6;                        /*[V] Amplitude of AC potential */
+real omega = 2 * pi * freq; 		    /* Angular frequency */
+real timeFinal = 3 / freq; 			    /*[s] Final time */
+real t = 0; 			                /*[s] Time */
+real dt = timeFinal / iter;
+
+func Eapp = EDC + ERMS * sin(omega * t); /*[V] Applied DC and AC Potential */
+
+/*electrode reaction*/
+/*Fe = Fe2+ + 2e and 1/2H2 = H+ + e*/
+real bc = -0.352;                   /*[V] Tafel slope for oxygen reduction */
+real ba = 0.089;                    /*[V] Tafel slope for metal dissolution */
+real bH2 = -0.205;                  /*[V] Tafel slope for hydrogen evolution reaction */
+
+real Ecorr = -0.67;                 /*[V] Reference equilibrium potential for iron dissolution */
+real EH2 = -0.244;                  /*[V] Reference equilibrium potential for hydrogen evolution */
+real icorr = 5e-1;                  /*[A/m^2] Reference exchange current density for iron dissolution */
+real i0H2 = 1e-3;                   /*[A/m^2] Reference exchange current density for hydrogen evolution */
+real iO2lim = 7e-1;                 /*[A/m^2] Limiting current density for oxygen reduction */
+
+real E0 = EDC - icorr * Rs * (exp(2.3 * (EDC - Ecorr) / ba) - exp(2.3 * (EDC - Ecorr) / bc)
+    / (1 - icorr / iO2lim + icorr / iO2lim * exp(2.3 * (EDC - Ecorr) / bc))) + i0H2 * Rs * exp(2.3 * (EDC - EH2) / bH2); 	
+    /*[V] Initial electric potential*/
+
+real DO2 = 2e-9;                    /*[m^2/s] Diffusion coefficient of dissolved oxygen */
+real cO2sat = 0.2;                  /*[mol/m3] Saturation concentration of dissolved oxygen */
+
+real HElectrolyte = 4 * Fconst * cO2sat * DO2 / iO2lim;          /*[m] Diffusion layer thickness */
+real LElectrolyte = 500e-6;         /*[m] */
+
+/*geometry*/
+real[int] xPElectrolyte = [-1, 1, 1, -1] * LElectrolyte;
+real[int] yPElectrolyte = [0, 0, 1,  1] * HElectrolyte;
+int[int] nElectrolyte = [10, 1, 10, 1] * 10;
+
+int[int] labelElectrolyte = [1, 2, 3, 4];
+border GammaElectrolyte(t = 0.0, 1.0; i){
+    int iNext = (i + 1) % nElectrolyte.n;
+    x = xPElectrolyte[i] * (1 - t) + xPElectrolyte[iNext] * t;
+    y = yPElectrolyte[i] * (1 - t) + yPElectrolyte[iNext] * t;
+    label = labelElectrolyte[i];
+}
+
+mesh Th = buildmesh(GammaElectrolyte(nElectrolyte));
+// plot(Th, wait = Wait);
+fespace Vh2(Th, P2);
+
+// int nn = iter + 1;
+int nn = iter + 2;
+
+real[int] tt(nn);
+
+real[int] vIanode(nn);
+real[int] vIdl(nn);
+real[int] vIO2(nn);
+real[int] vIH2(nn);
+real[int] vCorr(nn);
+real[int] vCorrLinear(nn);
+
+string[int] legendAnDL = ["i Anodic", "i Double layer"];
+string[int] legendO2H2 = ["i O2", "i H2"];
+string[int] legendO2 = ["i O2", "i O2"];
+
+Vh2 cO2, wO2;     /*delta c*/
+cO2 = cO2sat;
+// Vh2 E, v, EOld;
+real E = E0;
+real EOld = E;
+real iO2, iH2, ianode, idl;
+real RO2;
+
+macro IE{
+    iO2 = - icorr * cO2(0, 0) / cO2sat * exp(2.3 * (E - Ecorr) / bc) / (1 - icorr / iO2lim + icorr / iO2lim * exp(2.3 * (E - Ecorr) / bc));
+    iO2 = - icorr * cO2(0, 0) / cO2sat * exp(2.3 * (E - Ecorr) / bc);
+    iH2 = - i0H2 * exp(2.3 * (E - EH2) / bH2);
+    ianode = icorr * exp(2.3 * (E - Ecorr) / ba);
+    idl = Cdl * (E - EOld) / dt;
+}//EOM
+
+macro PrintI{
+    cout << " " << endl;
+    cout << "Time " << t << endl;
+    cout << "E " << E << endl;
+    cout << "iO2 " << iO2 << endl;
+    cout << "RO2 " << RO2 << endl;
+    cout << "iH2 " << iH2 << endl;
+    cout << "ianode " << ianode << endl;
+    cout << "idl " << idl << endl;
+}//EOM
+
+problem MassO2(cO2, wO2) = 
+    int2d(Th, optimize = 2)(DO2 * grad(cO2)' * grad(wO2))
+    // - int1d(Th, 1)(- icorr * cO2 / cO2sat * exp(2.3 * (E - Ecorr) / bc) / (1 - icorr / iO2lim + icorr / iO2lim * exp(2.3 * (E - Ecorr) / bc)) * 1 / (4 * Fconst) * wO2)
+    - int1d(Th, 1)(- icorr * cO2 / cO2sat * exp(2.3 * (E - Ecorr) / bc) * 1 / (4 * Fconst) * wO2)
+    + on(3, cO2 = cO2sat)
+    ;
+string plottitleO2 = "Concentration of O2 ";
+
+real result;
+func real FuncPart(real t, real Enew){
+    E = Enew;
+    // MassO2;
+    result = - E;
+    // result += - ianode * Rs; //new E
+    // result += - iO2 * Rs;  
+    // result += - iH2 * Rs; 
+    // result += Eapp;
+    result += - icorr * Rs * exp(2.3 * (E - Ecorr) / ba);  /* Anodic current */
+    result += icorr * cO2(0, 0) / cO2sat * Rs * exp(2.3 * (E - Ecorr) / bc) / (1 - icorr / iO2lim + icorr / iO2lim * exp(2.3 * (E - Ecorr) / bc));  /* O2 current */
+    result += i0H2 * Rs * exp(2.3 * (E - EH2) / bH2);      /* H2 current */
+    result += EDC + ERMS * sin(omega * t);
+    return result / (Cdl * Rs);
+}
+
+IE;
+MassO2;
+// plot(Th, cO2, dim = 2, value = 1, nbiso = 50, fill = 1, wait = 1, cmm = plottitleO2);
+IE;
+// cout << "iO2 " << iO2 << endl;
+// exit(0);
+
+real cSteel = rhoSteel / MwSteel;   /*[mol/m^3] Initial concentration of Fe */
+
+int i = 0;
+tt[i] = t;
+vIanode[i] = ianode;
+vIdl[i] = idl;
+vIO2[i] = iO2;
+vIH2[i] = iH2;
+vCorr[i] = MwSteel / (1 * Fconst) * vIanode[i];               /*[kg/m^2 s] Velosity of metal loss */
+vCorrLinear[i] = vCorr[i] / rhoSteel;                        /*[m/s] Linear corrosion rate*/
+
+real mean = 0;
+real k1, k2, k3, k4;
+string timeName;
+
+while (t < timeFinal){
+    t = t + dt;
+    i = i + 1; 
+
+    k1 = FuncPart(t, EOld);
+    k2 = FuncPart(t + dt / 2, EOld + dt / 2 * k1);
+    k3 = FuncPart(t + dt / 2, EOld + dt / 2 * k2);
+    k4 = FuncPart(t + dt, EOld + dt * k3);
+    E = EOld + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
+
+    // MassO2;
+    IE;
+    tt[i] = t;
+    vIanode[i] = ianode;
+    vIdl[i] = idl * 1000;
+    vIO2[i] = iO2 * 100;
+    vIH2[i] = iH2;
+    EOld = E;
+    vCorr[i] = MwSteel / (1 * Fconst) * vIanode[i];               /*[kg/m^2 s] Velosity of metal loss */
+    vCorrLinear[i] = vCorr[i] / rhoSteel;                         /*[m/s] Linear corrosion rate*/
+    mean += vCorrLinear[i] * dt * 1000;
+}
+cout << "weight loss 3 times " << mean << " mm" << endl;
+cout << "corr rate " << mean / timeFinal * 60 * 60 * 24 << " mm/day" << endl;
+cout << "corr rate " << mean / timeFinal * 60 * 60 * 24 * 360 << " mm/year" << endl;
+
+try{
+    drawTwoCurvesGnuplot(pipeStream, 
+        tt, vIanode, vIdl, legendAnDL);
+    drawTwoCurvesGnuplot(pipeStream, 
+        tt, vIO2, vIH2, legendO2H2);
+    // drawTwoCurvesGnuplot(pipeStream, 
+    //     tt, vIO2, vIO2, legendO2);
+}
+catch(...){
+    cout << "Error " << endl;
+}
+
+string Filett = "Result AC/" + freq + "/tt.txt";
+{
+ofstream out(Filett);
+for (int k = 0; k < nn; k++){
+   out << tt[k] << endl; 
+}
+}
+
+string Filedl = "Result AC/" + freq + "/dl.txt";
+{
+ofstream out(Filedl);
+for (int k = 0; k < nn; k++){
+   out << vIdl[k] << endl; 
+}
+}
+
+string FileAnode = "Result AC/" + freq + "/Anode.txt";
+{
+ofstream out(FileAnode);
+for (int k = 0; k < nn; k++){
+   out << vIanode[k] << endl; 
+}
+}
+
+string FileO2 = "Result AC/" + freq + "/O2.txt";
+{
+ofstream out(FileO2);
+for (int k = 0; k < nn; k++){
+   out << vIO2[k] * 100 << endl; 
+}
+}
+
+string FileH2 = "Result AC/" + freq + "/H2.txt";
+{
+ofstream out(FileH2);
+for (int k = 0; k < nn; k++){
+   out << vIH2[k] * 100 << endl; 
+}
+}

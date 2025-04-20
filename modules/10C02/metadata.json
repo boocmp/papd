@@ -1,0 +1,6 @@
+{
+  "name": "10C02",
+  "type": "FreeFem++",
+  "entrypoint": "10C02.edp",
+  "output": "stdout"
+}

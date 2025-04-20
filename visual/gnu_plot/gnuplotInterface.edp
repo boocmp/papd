@@ -1,0 +1,45 @@
+func bool drawTwoCurvesGnuplot(pstream& pipeStream, real[int]& xx, real[int]& yy1, real[int]& yy2, string[int]& legend){
+
+    include "quote.edp"
+
+    // cout << quote << endl;
+    string xStr = "x=" + quote;
+    string yy1Str = "y1=" + quote;
+    string yy2Str = "y2=" + quote;
+
+	for(int i = 0; i < xx.n; i++){
+
+		xStr = xStr + " " + xx[i];
+		yy1Str = yy1Str + " " + yy1[i];
+		yy2Str = yy2Str + " " + yy2[i];
+  
+	}
+	xStr = xStr + quote;
+	yy1Str = yy1Str + quote;
+	yy2Str = yy2Str + quote;
+
+	pipeStream << xStr << endl;
+	pipeStream << yy1Str << endl;
+	pipeStream << yy2Str << endl;
+
+    pipeStream << "set parametric" << endl;
+
+    pipeStream << "set trange[1:words(x)]" << endl << "set samples words(x)" << endl;
+
+    pipeStream << 	"plot " <<
+    	"(0+word(" + "x" + ", int(t))), " << 
+    	"(0+word(" + "y1" + ", int(t)))" <<
+        " title " + quote 
+            + legend[0] 
+        + quote << /* legend for curve 1 */
+        "," << /* comma separates the data command */
+    	"(0+word(" + "x" + ",int(t))), " << 
+    	"(0+word(" + "y2" + ",int(t)))" <<
+        " title " + quote 
+            + legend[1] 
+        + quote << /* legend for curve 2 */
+    	endl;
+
+	flush(pipeStream); /* Flush the pipe stream. Otherwise does not work!!! */
+
+}

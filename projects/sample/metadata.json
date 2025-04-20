@@ -1,0 +1,26 @@
+{
+  "name": "Sample",
+  "tasks": [
+    {
+      "module": "3AC",
+      "input": [
+        { "DB.Constants": "temperature.20 C.*" },
+        { "Config": { "freq": 60, "iter": 100 } }
+      ]
+    },
+    {
+      "module": "BIO",
+      "input": [
+        { "DB.Constants": "temperature.20 C.*" },
+        { "Config": { "L": 10.0, "Nx": 100 } }
+      ]
+    },
+    {
+      "module": "Sample",
+      "input": [
+        { "DB.Constants": "temperature.20 C.*" },
+        { "Config": { "L": 10.0, "Nx": 100 } }
+      ]
+    }
+  ]
+}

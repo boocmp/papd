@@ -1,0 +1,22 @@
+add_library(executor
+  base_executor.cpp
+  base_executor.h
+  base_generator.cpp
+  base_generator.h
+  base_task.cpp
+  base_task.h
+  cpp_generator.cpp
+  cpp_generator.h
+  fem_generator.cpp
+  fem_generator.h
+  interpretator_task.cpp
+  interpretator_task.h
+  executable_task.cpp
+  executable_task.h
+  iterate_executor.cpp
+  iterate_executor.h
+  parallel_executor.cpp
+  parallel_executor.h
+  python_generator.cpp
+  python_generator.h
+)

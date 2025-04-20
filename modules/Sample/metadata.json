@@ -1,0 +1,6 @@
+{
+  "name": "Sample",
+  "type": "Python",
+  "entrypoint": "sample.py",
+  "output": "stdout"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "BIO",
+  "type": "C++",
+  "entrypoint": "bio.cpp",
+  "output": "stdout"
+}

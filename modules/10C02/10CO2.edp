@@ -1,0 +1,359 @@
+/*
+mkm, not geometry
+water not oil
+iron not steel, alloy
+not flow
+static not delta geometry
+not film
+phil = const or linear, not exp debay layer 
+stationar
+*/
+
+load "msh3"
+load "pipe" 
+include "gnuplotInterface.edp"
+
+string sgnuplot = "\"C:\\Program Files\\gnuplot\\bin\\gnuplot.exe\" -persist";
+pstream pipeStream(sgnuplot, "w");
+
+macro grad(u) [dx(u), dy(u)] // EOM
+macro mod(u, v) (u^2 + v^2)^0.5 // EOM
+
+/*input value*/
+real TC = 20;                       /*[degC] Operating temperature */
+real PCO2 = 1;                      /*[bar] Partial pressure of CO2 */
+real phiL0 = 0.5;                   /*[V] Initial electrolyte potential */
+real phiSext0 = 0;
+
+int Wait = 1;
+real data = 1;
+
+real HElectrolyte = 50e-6;          /*[m] */
+real LElectrolyte = 50e-6;         /*[m] */
+// real zElectrolyte = LElectrolyte;
+
+/*geometry*/
+real[int] xPElectrolyte = [-1, 1, 1, -1] * LElectrolyte;
+real[int] yPElectrolyte = [0, 0, 1,  1] * HElectrolyte;
+int[int] nElectrolyte = [10, 1, 1, 1] * 20;
+
+int[int] labelElectrolyte = [1, 2, 3, 4];
+border GammaElectrolyte(t = 0.0, 1.0; i){
+    int iNext = (i + 1) % nElectrolyte.n;
+    x = xPElectrolyte[i] * (1 - t) + xPElectrolyte[iNext] * t;
+    y = yPElectrolyte[i] * (1 - t) + yPElectrolyte[iNext] * t;
+    label = labelElectrolyte[i];
+}
+
+mesh Th = buildmesh(GammaElectrolyte(nElectrolyte));
+int[int] rmidCube = [1, 20, 2, 30, 3, 40, 4, 50];
+// mesh3 Th = buildlayers(Th, 20, zbound = [0, zElectrolyte], labelmid = rmidCube);
+plot(Th, wait = Wait);
+fespace Vh2(Th, P2);
+
+real TK = TC + 273.15;              /*[K] Operating temperature */
+real TF = TC * 1.8 + 32;            /* Operating temperature in Fahrenheit */
+real cunit = 1000;                  /*[mol/m^3] Unit activity concentration */
+real Fconst = 96485;                /*[kl/mol] */
+
+real rhoSteel = 7850;               /*[kg/m^3] Density of steel */
+real MwSteel = 55.845e-3;           /*[kg/mol] Molecular weight of steel */
+real cSteel = rhoSteel / MwSteel;   /*[mol/m^3] Initial concentration of Fe */
+
+/*electrolyte*/
+/*CO2 + H2O = H2CO3 and H2CO3 = H+ + HCO3-*/
+real DCO2 = 1.96e-9;                /*[m^2/s] Diffusion coefficient of CO2 */
+real DH2CO3 = 2e-9;                 /*[m^2/s] Diffusion coefficient of H2CO3 */
+real DHCO3 = 1.105e-9;              /*[m^2/s] Diffusion coefficient of HCO3 */
+real DH = 9.312e-9;                 /*[m^2/s] Diffusion coefficient of H */
+real DOH = 5.26e-9;                 /*[m^2/s] Diffusion coefficient of OH */
+real DFe = 0.72e-9;                 /*[m^2/s] Diffusion coefficient of Fe */
+
+real zHCO3 = -1;                    /* charge HCO3 */
+real zH = 1;                        /* charge H */
+real zOH = -1;                      /* charge OH */
+real zFe = 2;                       /* charge Fe */
+
+real KCO2 = 0.0454 * (1.6616 - 5.736e-2 * TC + 1.031e-3 * TC^2 - 9.68e-6 * TC^3 + 4.471e-8 * TC^4 - 7.912e-11 * TC^5);    /* Henry's constant */
+real KCO2H = 2.58e-3;                                               /* Equilibrium constant for CO2 hydration */
+real KH2CO3 = 387.6 * 10^(-(6.41 - 1.594e-3 * TF + 8.52e-6 * TF^2)); /* Equilibrium constant for H2CO3 dissociation */
+// real KHCO3 = 10^(-(10.61 - 4.97e-3 * TF + 1.331e-5 * TF^2));        /* Equilibrium constant for HCO3 dissociation */
+// real kCO2H = 10^(169.2 - 53 * log10(TK) - 11715 / TK);              /* Forward reaction rate for CO2 hydration*/
+// real pKw = 14.94 - 0.04209 * TC + 0.0001718 * TC^2;                /* water */
+// real Kw = 10^(-pKw) * cunit * cunit;                               /* water */
+// cout << KH2CO3 << endl;
+
+real cCO20 = KCO2 * PCO2 * cunit;                                  /*[mol/m^3] Initial concentration of CO2 */
+real cH2CO30 = KCO2H * cCO20;                                      /*[mol/m^3] Initial concentration of H2CO3 */
+real cHCO30 = (KH2CO3 * cunit * cH2CO30)^0.5;                      /*[mol/m^3] Initial concentration of HCO3- */
+real cFe0 = 0;                                                     /*[mol/m^3] Initial concentration of Fe++ */
+real cH0 = cHCO30;
+// real cOH0 = Kw / cH0;
+real cOH0 = zH * cH0 + zHCO3 * cHCO30;
+real pH0 = log10(cunit / cH0); 
+cout << "pH = " << pH0 << endl;
+
+/*electrode reaction
+Fe = Fe2+ + 2e and 1/2H2 = H+ + e*/
+real Rconst = 8.31;                                                 /*[J/K*mol] */
+real FRTK = Fconst / (Rconst * TK);
+real bH = 0.118;                                                    /*[V] Tafel slope for H+ reduction */
+real bFe = 0.04;                                                    /*[V] Tafel slope for Fe oxidation */
+real TrefFe = 25 + 273.15;                                          /*[degC] Reference temperature */
+real TrefH = 25 + 273.15;                                           /*[degC] Reference temperature */
+real alphaaFe = 2.30258509 / (bFe * FRTK);                          /* Anodic transfer coefficient for iron dissolution */
+real alphaaH = 1 - 2.30258509 / (bH * FRTK);                        /* Anodic transfer coefficient for hydrogen evolution */
+real EeqrefFe = -0.409;                                             /*[V] Reference equilibrium potential for iron dissolution */
+real EeqrefH = 0;                                                   /*[V] Reference equilibrium potential for hydrogen evolution */
+real i0refFe = exp(-37.5e3 / Rconst * (1 / TK - 1 / TrefFe));       /*[A/m^2] Reference exchange current density for iron dissolution */
+real i0refH = exp(-30e3 / Rconst * (1 / TK - 1 / TrefH));           /*[A/m^2] Reference exchange current density for hydrogen evolution */
+
+Vh2 RFe, RH, ettaFe, ettaH, ilocFe, ilocH;
+Vh2 phiL, vL; 
+phiL = phiL0;
+
+macro MacroR(){
+    ettaFe = - phiL - EeqrefFe;
+    ilocFe = -1 * i0refFe * (exp(2 * alphaaFe * FRTK * ettaFe) - exp(-2 * (1 - alphaaFe) * FRTK * ettaFe));    
+    RFe = ilocFe / (2 * Fconst);
+
+    ettaH = - phiL - EeqrefH;
+    ilocH = i0refH *  cH0^alphaaH * (exp(alphaaH * FRTK * ettaH) - exp(-1 * (1 - alphaaH) * FRTK * ettaH)); 
+    RH = ilocH / (1 * Fconst);                                        
+}//EOM
+
+MacroR;
+
+cout << "RH = " << RH(0, 0) << endl; 
+cout << "RFe = " << RFe(0, 0) << endl; 
+cout << "pH surface = " << log10(cunit / (cH0 + RH(0, 0))) << endl;
+
+Vh2 wCO2, cCO2;     /*delta c*/
+problem MassCO2(cCO2, wCO2) = 
+    int2d(Th)(DCO2 * grad(cCO2)' * grad(wCO2))
+    - int1d(Th, 1)(RH * wCO2)
+    + on(3, cCO2 = 0)
+    ;
+string plottitleCO2 = "Delta concentration of CO2";
+
+Vh2 wHCO3, cHCO3;   /*delta c*/
+problem MassHCO3(cHCO3, wHCO3) = 
+    int2d(Th)(DHCO3 * (grad(cHCO3)' * grad(wHCO3) + zHCO3 * cHCO3 * FRTK * grad(phiL)' * grad(wHCO3)))
+    + int1d(Th, 1)(RH * wHCO3)
+    + on(3, cHCO3 = 0)
+    ;
+string plottitleHCO3 = "Delta concentration of HCO3";
+
+Vh2 wFe, cFe;       /*delta c*/
+problem MassFe(cFe, wFe) = 
+    int2d(Th)(DFe * (grad(cFe)' * grad(wFe) + zFe * cFe * FRTK * grad(phiL)' * grad(wFe)))
+    - int1d(Th, 1)(RFe * wFe)
+    + on(3, cFe = 0)
+    ;
+string plottitleFe = "Delta concentration of Fe2";
+
+func z2cD = zFe^2 * (cFe0 + cFe) * DFe + zH^2 * cH0 * DH + zOH^2 * cOH0 * DOH + zHCO3^2 * (cHCO30 + cHCO3) * DHCO3;
+problem CurrentL(phiL, vL) = 
+    int2d(Th)(z2cD * FRTK * grad(phiL)' * grad(vL)) 
+    + int2d(Th)(zFe * grad(cFe)' * grad(vL) * DFe + zHCO3 * grad(cHCO3)' * grad(vL) * DHCO3)
+
+    - int1d(Th, 1)((2 * RFe + RH) * Fconst * vL)
+    + on(3, phiL = phiL0)
+    ;
+string plottitlePhiL = "Electrolyte potential";
+
+int nPointsOut = 3000;
+real hy = HElectrolyte / (nPointsOut - 1);
+
+real xStart = 0;
+real yStart = 0;
+
+real[int] xx(nPointsOut);
+real[int] yy(nPointsOut);
+
+real[int] vFe(nPointsOut);
+real[int] vCO2(nPointsOut);
+string[int] legendFeCO2 = ["cFe", "cCO2"];
+
+real[int] vHCO3(nPointsOut);
+real[int] vH2CO3(nPointsOut);
+string[int] legendHCO3H2CO3 = ["cHCO3", "cH2CO3"];
+
+macro Plotting {
+    try{
+        for(int ix = 0; ix < nPointsOut; ix++){
+            xx[ix] = xStart;
+            yy[ix] = yStart + ix * hy;
+
+            vFe[ix] = cFe(xx[ix], yy[ix]);
+            vCO2[ix] = cCO2(xx[ix], yy[ix]);
+            vHCO3[ix] = cHCO3(xx[ix], yy[ix]);
+            vH2CO3[ix] = cH2CO3(xx[ix], yy[ix]);
+        }
+        yy = yy * 1e5;
+
+        drawTwoCurvesGnuplot(pipeStream, 
+            yy, vFe, vCO2, legendFeCO2);
+
+        drawTwoCurvesGnuplot(pipeStream, 
+            yy, vHCO3, vH2CO3, legendHCO3H2CO3);
+    }
+    catch(...){
+        cout << "Error " << endl;
+    }
+} //EOM
+
+int iter = 1;
+int tIter = 4;
+string iterName;
+
+while (iter < tIter + 1){ 
+    iterName = "Iter = " + iter + " ";
+
+    MassCO2;
+    plot(Th, cCO2, dim = 2, value = 1, nbiso = 50, fill = 1, wait = Wait, cmm = iterName + plottitleCO2);
+
+    MassHCO3;
+    plot(Th, cHCO3, dim = 2, value = 1, nbiso = 50, fill = 1, wait = Wait, cmm = iterName + plottitleHCO3);
+
+    MassFe;
+    plot(Th, cFe, dim = 2, value = 1, nbiso = 50, fill = 1, wait = Wait, cmm = iterName + plottitleFe);
+
+    CurrentL;
+    plot(Th, phiL, dim = 2, value = 1, nbiso = 50, fill = 1, wait = 1, cmm = iterName + plottitlePhiL);
+
+    MacroR;
+    cout << "pH surface = " << log10(cunit / (cH0 + RH(0, 0))) << endl;
+
+    iter = iter + 1;
+    // Plotting;
+}
+
+real vCorr = MwSteel * RFe;                                 /*[kg/m^2 s] Velosity of metal loss */
+real vCorrLinear = vCorr / rhoSteel;                        /*[m/s] Linear corrosion rate*/
+vCorrLinear = vCorrLinear * 1e3 * 60 * 60 * 24 * 30 * 12;   /*[mm/year] Linear corrosion rate*/
+
+cout << "Corrosion rate = " << vCorrLinear << " mm/year" << endl;
+
+exit(0);
+
+string Dir = "Result CO2/" + data + "/";
+string meshFileName = Dir + "mesh.msh";
+savemesh(Th, meshFileName);
+
+string cFeFileName = Dir + "cFe.txt";
+{
+ofstream out(cFeFileName);
+out << cFe[];
+}
+
+string cH2CO3FileName = Dir + "cHCO3.txt";
+{
+ofstream out(cH2CO3FileName);
+out << cHCO3[];
+}
+
+string phiLFileName = Dir + "phiL.txt";
+{
+ofstream out(phiLFileName);
+out << phiL[];
+}
+
+exit(0);
+
+// cout << alphaaFe << endl;
+// cout << alphaaH2 << endl;
+// cout << i0refFe << endl;
+// cout << i0refH2 << endl;
+
+// real cco20 = cCO20 / cunit;    
+// real ch2co30 = cH2CO30 / cunit;      
+// real chco30 = cHCO30 / cunit;  
+// real cfe0 = cFe0 / cunit;          
+
+// real Dref = 1e-9; 
+// real dCO2 = DCO2 / Dref;    
+// real dH2CO3 = DH2CO3 / Dref;      
+// real dHCO3 = DHCO3 / Dref;   
+// real dH = DH / Dref;      
+// real dOH = DOH / Dref;      
+// real dFe = DFe / Dref;  
+
+// real eps0 = 8.85 * 1e-12; 
+// real epsSoil = 5.0;
+
+// real rd2 = Rconst * TK * epsSoil * eps0 / (Fconst^2 * cunit);
+// cout << "2 rd^2 = " << rd2 << endl;
+// cout << "2^0.5 * rd = " << rd2^0.5 * 10^6 << " mkm" << endl;
+
+// real h = HElectrolyte / rd2^0.5;
+// real l = LElectrolyte / rd2^0.5;
+
+// real sa = 0.1;
+// cout << "sa" << sa << endl;
+
+// real sigma = Sigma * cunit * Dref * Fconst^2 / (Rconst * TK);
+// cout << "sigma = " << sigma << endl;
+
+// real Ka = 1e-6;                            // &&&
+// real ka = rd2 * Ka / Dref;
+// cout << "ka = " << ka << endl;
+
+// real Kc = 1e-6;                            // &&&
+// real kc = rd2 * Kc / Dall;
+// cout << "kc = " << kc << endl;
+
+// real i0reffe = i0refFe * rd2^0.5 / (Fconst * cunit * Dref);    
+// real i0refh2 = i0refH2 * rd2^0.5 / (Fconst * cunit * Dref);          
+
+// real U8 = 10^(-8); //
+// real U10 = -1 * 10^(-8); //
+
+// real u8 = U8 * F / (R * T); 
+// real u10 = U10 * F / (R * T); 
+
+// real Tetta = 0.2;
+
+// real dT = 60 * 60 * 24;                        /*[s]*/
+// real dt = dt / rd2 * Dref; 
+// real T = 0;
+
+// for (int i = 0; i < iterMax; i++){
+//     phiAdOld = phiAd;
+
+//     Th = adaptmesh(Th, phiAd,
+//         err = error, 
+//         nbvx = 60000, //max number of vertex
+//         hmin = 0.01, // max size of the triangle
+//         hmax = 0.7,
+//         iso = true //isotropy: better true
+//     );
+//     CurrentAdition;
+//     plot(Th);
+
+//     velL2AbsError = sqrt(int2d(Th)((phiAd - phiAdOld)^2));
+//     velL2RelError = velL2AbsError / sqrt( int2d(Th)((phiAdOld)^2));
+//     cout << "velL2RelError  " << velL2RelError << endl;
+// }
+
+// for (int j = 0; j < c[].n ; j++) {//why only normal
+//     if (c[][j] < 0){
+//         cout << "aa" << endl;
+//         c[][j] = 0;
+//     }
+// }
+
+// cMean = (int2d(Th)(c) - ka * cfe * t * sa) / int2d(Th)(1);
+// // cout << cMean << endl;
+// c = c - cMean;
+
+// for (int j = 0; j < c1[].n ; j++) {//why only normal
+//     if (c1[][j] < 0){
+//         cout << "bb" << endl;
+//         c1[][j] = 0;
+//     }
+// }
+
+// cMean = (int2d(Th)(c1) + ka * cfe * t * sa - int2d(Th)(ch)) / int2d(Th)(1);
+// // cout << cMean << endl;
+// c1 = c1 - cMean;

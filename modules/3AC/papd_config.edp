@@ -1,0 +1,27 @@
+// GENERATED FILE!
+
+real freq = 60;
+real iter = 100;
+string flowPattern = "SEGREGATED";
+real holdup = 0.0163887;
+real length = 18.6364;
+real pressure = 1.02554e+07;
+real temperature = 303.485;
+real velocityGas = 1.11817;
+real velocityOil = 0.0133838;
+real velocityWater = 0.0133838;
+real densityGas = 82.4786;
+real densityOil = 82.4786;
+real densityWater = 1000.13;
+real fracGas = 0.999801;
+real fracOil = 0;
+real fracWater = 0.000199391;
+real massFlowGas = 2.59914;
+real massFlowOil = 0;
+real massFlowWater = 0.0062855;
+real viscosityGas = 1.42777e-05;
+real viscosityOil = 1.45343e-05;
+real viscosityWater = 0.000789369;
+real volumetricFlowGas = 0.0315129;
+real volumetricFlowOil = 0;
+real volumetricFlowWater = 6.28466e-06;

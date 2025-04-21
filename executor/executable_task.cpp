@@ -8,8 +8,8 @@ ExecutableTask::ExecutableTask(const std::filesystem::path &executable)
 std::filesystem::path ExecutableTask::Exec() {
   const auto cwd = std::filesystem::current_path();
 
-  std::filesystem::current_path(cwd /
-                                executable_.relative_path().remove_filename());
+  std::filesystem::current_path(
+      cwd / std::filesystem::relative(executable_, cwd).remove_filename());
   auto outdir = std::filesystem::current_path();
 
   std::string command = executable_.filename().generic_string();

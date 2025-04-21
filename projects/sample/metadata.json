@@ -12,7 +12,7 @@
       "module": "BIO",
       "input": [
         { "DB.Constants": "temperature.20 C.*" },
-        { "Config": { "L": 10.0, "Nx": 100 } }
+        { "Config": { "L": 10.0, "Nx": 100, "Bacteria": "SRB"} }
       ]
     },
     {

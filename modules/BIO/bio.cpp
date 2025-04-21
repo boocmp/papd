@@ -7,19 +7,19 @@
 using namespace std;
 
 // Параметры модели
-const double dx = L / Nx;   // Шаг сетки
-const double dt = 0.001;    // Шаг по времени
-const int Nt = 10000;       // Число временных шагов
-const double D_s = 0.01;    // Коэффициент диффузии субстрата
-const double D_x = 0.005;   // Коэффициент диффузии бактерий
-const double mu_max = 0.1;  // Максимальная скорость роста бактерий
-const double K_s = 0.5;     // Константа полунасыщения
-const double Y_xs = 0.5;    // Коэффициент выхода биомассы на субстрат
-const double k_d = 0.01;    // Константа гибели бактерий
-const double k_a = 0.02;    // Константа адгезии
-const double k_det = 0.005; // Константа отрыва биопленки
-const double eta = 0.8;     // Коэффициент эффективности потребления
-const double u = 0.1;       // Постоянная скорость потока
+const double dx = double(L) / double(Nx); // Шаг сетки
+const double dt = 0.001;                  // Шаг по времени
+const int Nt = 10000;                     // Число временных шагов
+const double D_s = 0.01;                  // Коэффициент диффузии субстрата
+const double D_x = 0.005;                 // Коэффициент диффузии бактерий
+const double mu_max = 0.1;       // Максимальная скорость роста бактерий
+const double K_s = 0.5;          // Константа полунасыщения
+const double Y_xs = 0.5;         // Коэффициент выхода биомассы на субстрат
+const double k_d = 0.01;         // Константа гибели бактерий
+const double k_a = 0.02;         // Константа адгезии
+const double k_det = 0.005;      // Константа отрыва биопленки
+const double eta = 0.8;          // Коэффициент эффективности потребления
+const double u = velocity_water; // Постоянная скорость потока
 
 // Функция роста бактерий
 double growthRate(double C_s, double C_x_pl, double C_x_ad) {
